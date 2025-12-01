@@ -2,38 +2,48 @@
 
 const mongoose = require("mongoose");
 
+// Counter Collection for Driver ID
+const counterSchema = new mongoose.Schema({
+  key: { type: String, required: true, unique: true },
+  value: { type: Number, default: 10000 }
+});
+const Counter = mongoose.model("DriverCounter", counterSchema);
+
 const driverSchema = new mongoose.Schema(
   {
     driverId: { type: String, required: true, unique: true },
+
     name: { type: String, required: true },
     phone: { type: String, required: true, unique: true },
     passwordHash: { type: String, required: true },
     email: { type: String, default: '' },
     dob: { type: Date, default: null },
+
     licenseNumber: { type: String, required: true, unique: true },
     aadharNumber: { type: String, required: true, unique: true },
+
     bankAccountNumber: { type: String, default: '' },
     ifscCode: { type: String, default: '' },
+
     licenseDocument: { type: String, default: '' },
     aadharDocument: { type: String, default: '' },
 
     status: { type: String, enum: ["Live", "Offline"], default: "Offline" },
+
     vehicleType: { type: String, required: true },
     vehicleNumber: { type: String, required: true },
 
-    // 👇 Proper GeoJSON location field
+    // GeoJSON
     location: {
       type: { type: String, enum: ["Point"], default: "Point" },
       coordinates: { type: [Number], required: true },
     },
 
-    // ✅ Firebase Cloud Messaging & Platform details
     fcmToken: { type: String, default: null, index: true },
     fcmTokenUpdatedAt: { type: Date, default: null },
     platform: { type: String, enum: ["android", "ios"], default: "android" },
     notificationEnabled: { type: Boolean, default: true },
 
-    // ✅ Driver performance and account info
     active: { type: Boolean, default: false },
     totalPayment: { type: Number, default: 0 },
     settlement: { type: Number, default: 0 },
@@ -46,62 +56,46 @@ const driverSchema = new mongoose.Schema(
     loginTime: { type: String },
     logoutTime: { type: String },
     earnings: { type: Number, default: 0 },
-    
-    // ✅ Wallet field
+
     wallet: { type: Number, default: 0 },
 
-    // ✅ OTP fields
     otp: { type: String },
     otpExpiresAt: { type: Date },
 
-    // ✅ Security & account settings
     mustChangePassword: { type: Boolean, default: true },
     lastUpdate: { type: Date, default: Date.now },
+
   },
   { timestamps: true }
 );
 
-// ✅ Enable GeoJSON location-based queries
+// Enable geo queries
 driverSchema.index({ location: "2dsphere" });
 
-// Static method to generate driver ID
-driverSchema.statics.generateDriverId = async function(vehicleNumber) {
-  const vehicleNum = vehicleNumber.replace(/\D/g, '').slice(-4);
-  const baseId = `dri${vehicleNum}`;
-  
-  let counter = 1;
-  let driverId = baseId;
-  
-  // Check if driverId exists and increment counter if needed
-  while (await this.findOne({ driverId })) {
-    driverId = `${baseId}${counter}`;
-    counter++;
+
+// 🔥 NEW — Auto Generate Driver ID
+driverSchema.statics.generateDriverId = async function () {
+  // find or create counter
+  let counter = await Counter.findOne({ key: "driverId" });
+
+  if (!counter) {
+    counter = await Counter.create({ key: "driverId", value: 10000 });
   }
-  
-  return driverId;
+
+  // increment and save
+  counter.value += 1;
+  await counter.save();
+
+  // return driXXXXX
+  return `dri${counter.value}`;
 };
 
-// Static method to get driver statistics
-driverSchema.statics.getDriverStats = async function() {
-  const totalDrivers = await this.countDocuments();
-  const onlineDrivers = await this.countDocuments({ status: "Live" });
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const newDriversToday = await this.countDocuments({
-    createdAt: { $gte: today }
-  });
-  
-  return {
-    totalDrivers,
-    onlineDrivers,
-    newDriversToday
-  };
-};
 
-// Instance method to calculate rating
-driverSchema.methods.updateRating = function(newRating) {
+// Rating update
+driverSchema.methods.updateRating = function (newRating) {
   this.totalRatings += 1;
-  this.rating = ((this.rating * (this.totalRatings - 1)) + newRating) / this.totalRatings;
+  this.rating =
+    (this.rating * (this.totalRatings - 1) + newRating) / this.totalRatings;
 };
 
 module.exports = mongoose.model("Driver", driverSchema);
