@@ -23,6 +23,122 @@ router.get('/test', (req, res) => {
   });
 });
 
+
+
+
+router.post('/request-driver-otp', async (req, res) => {
+  try {
+    const { phoneNumber } = req.body;
+    
+    if (!phoneNumber) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Phone number is required' 
+      });
+    }
+
+    // Check if driver exists with this phone number
+    const driver = await Driver.findOne({ phone: phoneNumber });
+    
+    if (!driver) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Please enter a correct mobile number or contact your ADMIN.' 
+      });
+    }
+
+    // Generate OTP (in production, use a proper SMS service)
+    const otp = Math.floor(1000 + Math.random() * 9000).toString();
+    
+    // Store OTP in driver document (in production, use a more secure method)
+    driver.otp = otp;
+    driver.otpExpiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+    await driver.save();
+    
+    console.log(`OTP for driver ${phoneNumber}: ${otp}`);
+    
+    res.json({ 
+      success: true, 
+      message: 'OTP sent successfully',
+      driverId: driver.driverId,
+      // In production, don't return the OTP
+      otp: process.env.NODE_ENV === 'development' ? otp : undefined
+    });
+    
+  } catch (error) {
+    console.error('Error requesting driver OTP:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to send OTP',
+      error: error.message 
+    });
+  }
+});
+
+router.post('/verify-driver-otp', async (req, res) => {
+  try {
+    const { phoneNumber, otp } = req.body;
+    
+    if (!phoneNumber || !otp) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Phone number and OTP are required' 
+      });
+    }
+
+    // Find driver with this phone number
+    const driver = await Driver.findOne({ phone: phoneNumber });
+    
+    if (!driver) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Driver not found' 
+      });
+    }
+
+    // Check if OTP is valid and not expired
+    if (driver.otp !== otp || driver.otpExpiresAt < new Date()) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid or expired OTP' 
+      });
+    }
+
+    // Clear OTP after successful verification
+    driver.otp = undefined;
+    driver.otpExpiresAt = undefined;
+    await driver.save();
+
+    // Generate JWT token
+    const token = generateToken(driver._id);
+    
+    res.json({ 
+      success: true, 
+      message: 'OTP verified successfully',
+      token,
+      driver: {
+        driverId: driver.driverId,
+        name: driver.name,
+        phone: driver.phone,
+        vehicleType: driver.vehicleType,
+        vehicleNumber: driver.vehicleNumber,
+        status: driver.status,
+        wallet: driver.wallet || 0
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error verifying driver OTP:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to verify OTP',
+      error: error.message 
+    });
+  }
+});
+
+
+
 // Phone verification route
 router.post('/verify-phone', async (req, res) => {
   try {

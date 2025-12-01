@@ -1694,6 +1694,7 @@ app.put('/api/orders/admin/bulk-update', async (req, res) => {
 
 
 
+
 // ✅ PROXY ENDPOINT FOR REACT (in case proxy doesn't work)
 app.get('/api/admin/proxy/orders', async (req, res) => {
   console.log('🔀 Proxy endpoint hit, forwarding to orders endpoint');

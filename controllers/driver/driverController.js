@@ -245,6 +245,11 @@ const uploadDriverDocuments = async (req, res) => {
   }
 };
 
+
+// /Users/webasebrandings/Downloads/wsback-main/controllers/driver/driverController.js
+
+// Update the loginDriver function to include wallet in response
+
 const loginDriver = async (req, res) => {
   try {
     const { driverId, password, latitude, longitude, fcmToken } = req.body;
@@ -297,6 +302,7 @@ const loginDriver = async (req, res) => {
         vehicleType: driver.vehicleType,
         location: driver.location,
         fcmToken: driver.fcmToken,
+        wallet: driver.wallet || 0, // Include wallet in response
       },
     });
   } catch (err) {
@@ -304,6 +310,9 @@ const loginDriver = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
+
+
 
 
 const updateFCMToken = async (req, res) => {

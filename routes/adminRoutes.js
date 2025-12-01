@@ -20,6 +20,89 @@ const storage = multer.diskStorage({
   }
 });
 
+
+
+
+router.put('/driver/:id/wallet', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { amount } = req.body;
+    
+    if (!amount || isNaN(amount)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Valid amount is required' 
+      });
+    }
+    
+    const Driver = require('../models/driver/driver');
+    
+    const driver = await Driver.findById(id);
+    if (!driver) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Driver not found' 
+      });
+    }
+    
+    // Update wallet
+    driver.wallet += parseFloat(amount);
+    await driver.save();
+    
+    res.json({ 
+      success: true, 
+      message: 'Wallet updated successfully',
+      data: {
+        driverId: driver.driverId,
+        wallet: driver.wallet
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error updating driver wallet:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to update wallet',
+      error: error.message 
+    });
+  }
+});
+
+// Get driver details with wallet
+router.get('/driver/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const Driver = require('../models/driver/driver');
+    
+    const driver = await Driver.findById(id);
+    if (!driver) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Driver not found' 
+      });
+    }
+    
+    res.json({ 
+      success: true, 
+      data: driver
+    });
+    
+  } catch (error) {
+    console.error('Error fetching driver details:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch driver details',
+      error: error.message 
+    });
+  }
+});
+
+
+
+
+
+
 const upload = multer({ 
   storage: storage,
   limits: {
