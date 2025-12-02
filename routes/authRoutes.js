@@ -15,6 +15,66 @@ const generateToken = (userId) => {
   });
 };
 
+
+
+// In authRoutes.js - Make sure this endpoint exists
+router.post('/get-driver-info', async (req, res) => {
+  try {
+    const { phoneNumber } = req.body;
+    if (!phoneNumber) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Phone number is required' 
+      });
+    }
+
+    const driver = await Driver.findOne({ phone: phoneNumber });
+    if (!driver) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Driver not found' 
+      });
+    }
+
+    // Generate a simple token for the driver
+    const token = jwt.sign(
+      { id: driver._id, role: 'driver' }, 
+      process.env.JWT_SECRET || 'secret', 
+      { expiresIn: '30d' }
+    );
+
+    res.json({ 
+      success: true,
+      message: 'Driver information retrieved successfully',
+      token,
+      driver: {
+        driverId: driver.driverId,
+        name: driver.name,
+        phone: driver.phone,
+        vehicleType: driver.vehicleType,
+        vehicleNumber: driver.vehicleNumber,
+        status: driver.status,
+        wallet: driver.wallet || 0,
+        email: driver.email || '',
+        licenseNumber: driver.licenseNumber || ''
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error getting driver info:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to get driver info', 
+      error: error.message 
+    });
+  }
+});
+
+
+
+
+
+
 // Test route
 router.get('/test', (req, res) => {
   console.log('✅ /api/auth/test route hit!');
@@ -125,11 +185,20 @@ router.post('/register', async (req, res) => {
 
 // DRIVER AUTHENTICATION ROUTES
 
-// Request OTP for driver
+
+// In authRoutes.js - Update request-driver-otp
 router.post('/request-driver-otp', async (req, res) => {
   try {
     const { phoneNumber } = req.body;
-    if (!phoneNumber) return res.status(400).json({ success: false, message: 'Phone number is required' });
+    
+    console.log(`📞 Checking driver existence: ${phoneNumber}`);
+    
+    if (!phoneNumber) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Phone number is required' 
+      });
+    }
 
     // Check if phone number is valid (10-digit Indian number)
     if (!/^[6-9]\d{9}$/.test(phoneNumber)) {
@@ -141,73 +210,63 @@ router.post('/request-driver-otp', async (req, res) => {
 
     const driver = await Driver.findOne({ phone: phoneNumber });
     if (!driver) {
+      console.log(`❌ Driver not found: ${phoneNumber}`);
       return res.status(404).json({ 
         success: false, 
         message: 'This mobile number is not registered in our system. Please contact our admin at eazygo2026@gmail.com' 
       });
     }
 
-    // Generate OTP
-    const otp = Math.floor(1000 + Math.random() * 9000).toString();
-    driver.otp = otp;
-    driver.otpExpiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 min
-    await driver.save();
-
-    console.log(`📱 OTP for driver ${phoneNumber}: ${otp}`);
-
+    console.log(`✅ Driver found: ${driver.driverId}`);
+    
+    // IMPORTANT: We DON'T generate OTP here anymore
+    // Firebase will handle OTP generation and sending
+    
     res.json({ 
       success: true,
-      message: 'OTP sent successfully',
+      message: 'Driver verified successfully. Please check your phone for OTP.',
       driverId: driver.driverId,
-      otp: process.env.NODE_ENV === 'development' ? otp : undefined
+      // No OTP sent from backend anymore
     });
 
   } catch (error) {
-    console.error('❌ Error requesting driver OTP:', error);
-    res.status(500).json({ success: false, message: 'Failed to send OTP', error: error.message });
+    console.error('❌ Error checking driver:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to check driver', 
+      error: error.message 
+    });
   }
 });
 
-// Verify OTP for driver
+
+
+
+// In authRoutes.js - Optional: Update verify-driver-otp for backward compatibility
 router.post('/verify-driver-otp', async (req, res) => {
   try {
     const { phoneNumber, otp } = req.body;
-    if (!phoneNumber || !otp) return res.status(400).json({ success: false, message: 'Phone number and OTP are required' });
-
-    const driver = await Driver.findOne({ phone: phoneNumber });
-    if (!driver) return res.status(404).json({ success: false, message: 'Driver not found' });
-
-    if (driver.otp !== otp || driver.otpExpiresAt < new Date()) {
-      return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
-    }
-
-    // Clear OTP
-    driver.otp = undefined;
-    driver.otpExpiresAt = undefined;
-    await driver.save();
-
-    const token = generateToken(driver._id);
-
+    
+    console.log(`⚠️ Backend OTP verification called for ${phoneNumber}`);
+    
+    // Since we're using Firebase OTP now, this endpoint is deprecated
     res.json({ 
-      success: true,
-      message: 'OTP verified successfully',
-      token,
-      driver: {
-        driverId: driver.driverId,
-        name: driver.name,
-        phone: driver.phone,
-        vehicleType: driver.vehicleType,
-        vehicleNumber: driver.vehicleNumber,
-        status: driver.status,
-        wallet: driver.wallet || 0
-      }
+      success: false,
+      message: 'This endpoint is deprecated. Please use Firebase OTP verification.',
+      shouldUseFirebase: true
     });
 
   } catch (error) {
-    console.error('❌ Error verifying driver OTP:', error);
-    res.status(500).json({ success: false, message: 'Failed to verify OTP', error: error.message });
+    console.error('❌ Error in deprecated OTP verification:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Deprecated endpoint error', 
+      error: error.message 
+    });
   }
 });
+
+
 
 // Admin create driver
 router.post('/drivers/create', async (req, res) => {
