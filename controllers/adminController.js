@@ -66,6 +66,124 @@ exports.adminUpdateOrderStatus = async (req, res) => {
 };
 
 
+// /Users/webasebrandings/Downloads/wsback-main/controllers/adminController.js
+
+const Driver = require('../models/driver/driver');
+
+// Add this function to the exports
+const createDriverWithValidation = async (req, res) => {
+  try {
+    console.log('🚗 Creating driver with data:', req.body);
+    
+    const {
+      name,
+      phone,
+      email,
+      dob,
+      vehicleType,
+      vehicleNumber,
+      licenseNumber,
+      aadharNumber,
+      panNumber,
+      ifscCode,
+      bankAccountNumber,
+      workingHours,
+      minWalletAmount
+    } = req.body;
+
+    // Validate required fields
+    if (!name || !phone || !vehicleType || !vehicleNumber || !licenseNumber || !aadharNumber) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Required fields are missing' 
+      });
+    }
+
+    // Check if driver already exists
+    const existingDriver = await Driver.findOne({
+      $or: [
+        { phone: phone },
+        { licenseNumber: licenseNumber },
+        { aadharNumber: aadharNumber }
+      ]
+    });
+
+    if (existingDriver) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Driver with this phone, license, or Aadhaar already exists' 
+      });
+    }
+
+    // Generate driver ID
+    const driverId = await Driver.generateDriverId(vehicleNumber);
+    
+    // Hash password
+    const bcrypt = require('bcryptjs');
+    const passwordHash = await bcrypt.hash('password123', 10); // Default password
+
+    // Create driver
+    const driver = new Driver({
+      driverId,
+      name,
+      phone,
+      passwordHash,
+      email: email || '',
+      dob: dob ? new Date(dob) : null,
+      vehicleType,
+      vehicleNumber,
+      licenseNumber,
+      aadharNumber,
+      bankAccountNumber: bankAccountNumber || '',
+      ifscCode: ifscCode || '',
+      location: {
+        type: "Point",
+        coordinates: [0, 0] // Default location
+      },
+      status: "Offline",
+      active: true,
+      mustChangePassword: true,
+      wallet: minWalletAmount || 1000 // Set wallet to minWalletAmount or default 1000
+    });
+
+    // Save driver
+    await driver.save();
+    
+    console.log('✅ Driver created successfully:', {
+      driverId: driver.driverId,
+      name: driver.name,
+      phone: driver.phone,
+      wallet: driver.wallet
+    });
+    
+    res.status(201).json({
+      success: true,
+      message: 'Driver created successfully',
+      data: {
+        driverId: driver.driverId,
+        name: driver.name,
+        phone: driver.phone,
+        vehicleType: driver.vehicleType,
+        vehicleNumber: driver.vehicleNumber,
+        status: driver.status,
+        wallet: driver.wallet
+      }
+    });
+    
+  } catch (err) {
+    console.error('❌ Error creating driver:', err);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to create driver',
+      error: err.message 
+    });
+  }
+};
+
+
+
+
+
 // Get dashboard data
 exports.getDashboardData = async (req, res) => {
   try {
@@ -121,6 +239,81 @@ exports.getDashboardData = async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 };
+
+
+
+
+
+// Admin login
+exports.adminLogin = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    
+    console.log('🔐 Admin login attempt:', { email });
+    
+    if (!email || !password) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Email and password are required' 
+      });
+    }
+    
+    const AdminUser = require('../models/adminUser');
+    
+    // Find admin by email
+    const admin = await AdminUser.findOne({ email });
+    if (!admin) {
+      console.log('❌ Admin not found:', email);
+      return res.status(401).json({ 
+        success: false, 
+        error: 'Invalid credentials' 
+      });
+    }
+    
+    // Validate password
+    const isValidPassword = await admin.validatePassword(password);
+    if (!isValidPassword) {
+      console.log('❌ Invalid password for:', email);
+      return res.status(401).json({ 
+        success: false, 
+        error: 'Invalid credentials' 
+      });
+    }
+    
+    // Generate JWT token
+    const jwt = require('jsonwebtoken');
+    const token = jwt.sign(
+      { id: admin._id, role: admin.role },
+      process.env.JWT_SECRET || 'secret',
+      { expiresIn: '7d' }
+    );
+    
+    console.log('✅ Admin login successful:', email);
+    
+    res.json({
+      success: true,
+      message: 'Login successful',
+      token,
+      admin: {
+        id: admin._id,
+        username: admin.username,
+        email: admin.email,
+        role: admin.role
+      }
+    });
+    
+  } catch (error) {
+    console.error('Admin login error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Login failed',
+      details: error.message 
+    });
+  }
+};
+
+
+
 
 // Get all users
 exports.getUsers = async (req, res) => {

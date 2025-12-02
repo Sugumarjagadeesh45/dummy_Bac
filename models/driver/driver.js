@@ -1,4 +1,4 @@
-// /Users/webasebrandings/Downloads/wsback-main/models/driver/driver.js
+// /models/driver/driver.js
 
 const mongoose = require("mongoose");
 
@@ -11,39 +11,64 @@ const Counter = mongoose.model("DriverCounter", counterSchema);
 
 const driverSchema = new mongoose.Schema(
   {
-    driverId: { type: String, required: true, unique: true },
-
+    driverId: { 
+      type: String, 
+      required: true, 
+      unique: true,
+      index: true
+    },
     name: { type: String, required: true },
-    phone: { type: String, required: true, unique: true },
-    passwordHash: { type: String, required: true },
+    phone: { 
+      type: String, 
+      required: true, 
+      unique: true,
+      index: true
+    },
     email: { type: String, default: '' },
     dob: { type: Date, default: null },
-
-    licenseNumber: { type: String, required: true, unique: true },
-    aadharNumber: { type: String, required: true, unique: true },
-
+    licenseNumber: { 
+      type: String, 
+      required: true, 
+      unique: true,
+      index: true
+    },
+    aadharNumber: { 
+      type: String, 
+      required: true, 
+      unique: true,
+      index: true
+    },
     bankAccountNumber: { type: String, default: '' },
     ifscCode: { type: String, default: '' },
-
     licenseDocument: { type: String, default: '' },
     aadharDocument: { type: String, default: '' },
-
-    status: { type: String, enum: ["Live", "Offline"], default: "Offline" },
-
-    vehicleType: { type: String, required: true },
-    vehicleNumber: { type: String, required: true },
-
-    // GeoJSON
-    location: {
-      type: { type: String, enum: ["Point"], default: "Point" },
-      coordinates: { type: [Number], required: true },
+    status: { 
+      type: String, 
+      enum: ["Live", "Offline"], 
+      default: "Offline" 
     },
-
+    vehicleType: { type: String, required: true },
+    vehicleNumber: { 
+      type: String, 
+      required: true, 
+      unique: true,
+      index: true
+    },
+    location: {
+      type: { 
+        type: String, 
+        enum: ["Point"], 
+        default: "Point" 
+      },
+      coordinates: { 
+        type: [Number], 
+        required: true 
+      }
+    },
     fcmToken: { type: String, default: null, index: true },
     fcmTokenUpdatedAt: { type: Date, default: null },
     platform: { type: String, enum: ["android", "ios"], default: "android" },
     notificationEnabled: { type: Boolean, default: true },
-
     active: { type: Boolean, default: false },
     totalPayment: { type: Number, default: 0 },
     settlement: { type: Number, default: 0 },
@@ -53,18 +78,13 @@ const driverSchema = new mongoose.Schema(
     totalRides: { type: Number, default: 0 },
     rating: { type: Number, default: 0 },
     totalRatings: { type: Number, default: 0 },
-    loginTime: { type: String },
-    logoutTime: { type: String },
+    loginTime: { type: String, default: null },
+    logoutTime: { type: String, default: null },
     earnings: { type: Number, default: 0 },
-
     wallet: { type: Number, default: 0 },
-
-    otp: { type: String },
-    otpExpiresAt: { type: Date },
-
-    mustChangePassword: { type: Boolean, default: true },
+    otp: { type: String, default: null },
+    otpExpiresAt: { type: Date, default: null },
     lastUpdate: { type: Date, default: Date.now },
-
   },
   { timestamps: true }
 );
@@ -73,20 +93,14 @@ const driverSchema = new mongoose.Schema(
 driverSchema.index({ location: "2dsphere" });
 
 
-// 🔥 NEW — Auto Generate Driver ID
+// In driver.js, make sure this method is properly defined:
 driverSchema.statics.generateDriverId = async function () {
-  // find or create counter
   let counter = await Counter.findOne({ key: "driverId" });
-
   if (!counter) {
     counter = await Counter.create({ key: "driverId", value: 10000 });
   }
-
-  // increment and save
   counter.value += 1;
   await counter.save();
-
-  // return driXXXXX
   return `dri${counter.value}`;
 };
 
@@ -94,8 +108,7 @@ driverSchema.statics.generateDriverId = async function () {
 // Rating update
 driverSchema.methods.updateRating = function (newRating) {
   this.totalRatings += 1;
-  this.rating =
-    (this.rating * (this.totalRatings - 1) + newRating) / this.totalRatings;
+  this.rating = (this.rating * (this.totalRatings - 1) + newRating) / this.totalRatings;
 };
 
 module.exports = mongoose.model("Driver", driverSchema);

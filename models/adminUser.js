@@ -30,9 +30,6 @@ const adminUserSchema = new mongoose.Schema({
   autoIndex: false
 });
 
-// Remove duplicate index creation
-adminUserSchema.index({ username: 1 }, { unique: true });
-
 // Method to set password
 adminUserSchema.methods.setPassword = async function(password) {
   const salt = await bcrypt.genSalt(10);
@@ -44,10 +41,9 @@ adminUserSchema.methods.validatePassword = async function(password) {
   return bcrypt.compare(password, this.passwordHash);
 };
 
-// ✅ Make sure this line is correct
+// ✅ FIXED: Properly register the model
 const AdminUser = mongoose.model('AdminUser', adminUserSchema);
 
-// ✅ Make sure this export is correct
 module.exports = AdminUser;
 
 
