@@ -7,20 +7,15 @@ const jwt = require('jsonwebtoken');
 
 const path = require('path');
 
-// Update user profile
-// D:\newapp\fullbackend-main\fullbackend-main_\controllers\userController.js
 
+
+// In userController.js - updateProfile method
 exports.updateProfile = async (req, res) => {
   try {
     const { name, email, address, altMobile, gender, dob } = req.body;
     const userId = req.user.id;
     
     console.log('📝 Updating profile for user:', userId);
-    console.log('📝 Update data:', req.body);
-    if (req.file) {
-      console.log('📝 Profile picture file:', req.file);
-      console.log('📝 Profile picture path:', req.file.path);
-    }
     
     let user = await Registration.findById(userId);
     if (!user) {
@@ -35,17 +30,20 @@ exports.updateProfile = async (req, res) => {
     if (gender !== undefined) user.gender = gender;
     if (dob !== undefined) user.dob = dob;
     
-    // If there's a profile picture, update it with proper path
+    // Handle profile picture upload
     if (req.file) {
       // Store just the filename, not the full path
-      user.profilePicture = `/uploads/${req.file.filename}`;
-      console.log('📷 Updated profile picture path:', user.profilePicture);
+      const filename = req.file.filename;
+      user.profilePicture = filename; // Store only filename
+      console.log('📷 Updated profile picture filename:', filename);
     }
     
     await user.save();
     console.log('✅ User updated successfully');
     
-    // Format the response properly
+    // Construct proper URLs for response
+    const backendUrl = process.env.BACKEND_URL || 'http://localhost:5001';
+    
     const formattedUser = {
       _id: user._id,
       name: user.name,
@@ -53,7 +51,9 @@ exports.updateProfile = async (req, res) => {
       customerId: user.customerId,
       email: user.email || '',
       address: user.address,
-      profilePicture: user.profilePicture || '',
+      profilePicture: user.profilePicture 
+        ? `${backendUrl}/uploads/${user.profilePicture}` 
+        : '',
       gender: user.gender || '',
       dob: user.dob || '',
       altMobile: user.altMobile || '',
@@ -187,7 +187,7 @@ exports.getWallet = async (req, res) => {
   }
 };
 
-// Fix current user profile - ensure consistent response format
+// Update getCurrentUserProfile method
 exports.getCurrentUserProfile = async (req, res) => {
   try {
     const user = await Registration.findById(req.user.id).select('-password');
@@ -199,15 +199,11 @@ exports.getCurrentUserProfile = async (req, res) => {
     }
     
     // Build proper image URL if profile picture exists
-    let profilePictureUrl = '';
-    if (user.profilePicture) {
-      const backendUrl = process.env.BACKEND_URL || 'http://localhost:5001';
-      profilePictureUrl = user.profilePicture.startsWith('http') 
-        ? user.profilePicture 
-        : `${backendUrl}${user.profilePicture}`;
-    }
+    const backendUrl = process.env.BACKEND_URL || 'http://localhost:5001';
+    const profilePicture = user.profilePicture 
+      ? `${backendUrl}/uploads/${user.profilePicture}`
+      : '';
     
-    // Return in the format expected by frontend
     const userData = {
       _id: user._id,
       name: user.name || '',
@@ -215,7 +211,7 @@ exports.getCurrentUserProfile = async (req, res) => {
       customerId: user.customerId || '',
       email: user.email || '',
       address: user.address || '',
-      profilePicture: profilePictureUrl,
+      profilePicture: profilePicture,
       gender: user.gender || '',
       dob: user.dob || '',
       altMobile: user.altMobile || '',
@@ -231,7 +227,7 @@ exports.getCurrentUserProfile = async (req, res) => {
     res.json({
       success: true,
       user: userData,
-      data: userData // Some frontends expect this format too
+      data: userData
     });
     
   } catch (err) {
