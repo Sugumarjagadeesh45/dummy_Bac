@@ -530,6 +530,8 @@ socket.on("driverLiveLocationUpdate", async ({ driverId, driverName, lat, lng, h
 });
 
 
+
+
    
     // USER REGISTRATION
     socket.on('registerUser', ({ userId, userMobile }) => {
