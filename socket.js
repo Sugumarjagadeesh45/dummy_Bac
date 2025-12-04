@@ -479,34 +479,57 @@ const init = (server) => {
         console.error("❌ Error processing driver location update:", error);
       }
     });
-   
-    // DRIVER LIVE LOCATION UPDATE
-    socket.on("driverLiveLocationUpdate", async ({ driverId, driverName, lat, lng }) => {
-      try {
-        if (activeDriverSockets.has(driverId)) {
-          const driverData = activeDriverSockets.get(driverId);
-          driverData.location = { latitude: lat, longitude: lng };
-          driverData.lastUpdate = Date.now();
-          driverData.isOnline = true;
-          activeDriverSockets.set(driverId, driverData);
-         
-          // Save to database immediately
-          await saveDriverLocationToDB(driverId, driverName, lat, lng, driverData.vehicleType);
-         
-          // Broadcast real-time update to ALL users
-          io.emit("driverLiveLocationUpdate", {
-            driverId: driverId,
-            lat: lat,
-            lng: lng,
-            status: driverData.status,
-            vehicleType: driverData.vehicleType,
-            timestamp: Date.now()
-          });
-        }
-      } catch (error) {
-        console.error("❌ Error updating driver location:", error);
-      }
+
+    
+    // DRIVER LIVE LOCATION UPDATE - Enhanced version
+socket.on("driverLiveLocationUpdate", async ({ driverId, driverName, lat, lng, heading, speed }) => {
+  try {
+    console.log(`📍 LIVE: Driver ${driverId} location update: ${lat}, ${lng}`);
+    
+    // Ensure driver is in activeDriverSockets
+    if (!activeDriverSockets.has(driverId)) {
+      console.log(`👋 Adding driver ${driverId} to active sockets`);
+      activeDriverSockets.set(driverId, {
+        socketId: socket.id,
+        driverId,
+        driverName: driverName || "Unknown",
+        location: { latitude: lat, longitude: lng },
+        vehicleType: "taxi",
+        lastUpdate: Date.now(),
+        status: "Live",
+        isOnline: true
+      });
+    } else {
+      // Update existing driver
+      const driverData = activeDriverSockets.get(driverId);
+      driverData.location = { latitude: lat, longitude: lng };
+      driverData.lastUpdate = Date.now();
+      driverData.isOnline = true;
+      activeDriverSockets.set(driverId, driverData);
+    }
+    
+    // Save to database
+    await saveDriverLocationToDB(driverId, driverName, lat, lng, "taxi", "Live");
+    
+    // Broadcast real-time update to ALL users
+    io.emit("driverLiveLocationUpdate", {
+      driverId: driverId,
+      lat: lat,
+      lng: lng,
+      heading: heading || 0,
+      speed: speed || 0,
+      status: "Live",
+      vehicleType: "taxi",
+      timestamp: Date.now(),
+      source: "live-update"
     });
+    
+  } catch (error) {
+    console.error("❌ Error updating driver location:", error);
+  }
+});
+
+
    
     // USER REGISTRATION
     socket.on('registerUser', ({ userId, userMobile }) => {
@@ -863,7 +886,8 @@ socket.on("bookRide", async (data, callback) => {
 
     
 
-    // In socket.js, update the acceptRide handler to properly set driver location
+
+    // In socket.js - Update the acceptRide handler to get driver location from active socket
 socket.on("acceptRide", async (data, callback) => {
   const { rideId, driverId, driverName } = data;
   console.log("🚨 ===== BACKEND ACCEPT RIDE START =====");
@@ -896,12 +920,40 @@ socket.on("acceptRide", async (data, callback) => {
       return;
     }
 
-    // GET DRIVER DETAILS
-    const driver = await Driver.findOne({ driverId });
-    if (!driver) {
-      console.error(`❌ Driver ${driverId} not found in database`);
+    // 🔴 CRITICAL FIX: GET DRIVER'S CURRENT LOCATION FROM ACTIVE SOCKET
+    let driverLat, driverLng;
+    
+    if (activeDriverSockets.has(driverId)) {
+      const activeDriver = activeDriverSockets.get(driverId);
+      driverLat = activeDriver.location.latitude;
+      driverLng = activeDriver.location.longitude;
+      
+      console.log(`📍 Using REAL-TIME driver location from active socket:`, {
+        driverLat,
+        driverLng,
+        lastUpdate: new Date(activeDriver.lastUpdate).toLocaleTimeString(),
+        isOnline: activeDriver.isOnline
+      });
+    } else {
+      // Fallback to database if driver not in active sockets
+      const driver = await Driver.findOne({ driverId });
+      if (driver && driver.location && driver.location.coordinates) {
+        driverLat = driver.location.coordinates[1];
+        driverLng = driver.location.coordinates[0];
+        console.log(`📍 Using driver location from database (fallback):`, { driverLat, driverLng });
+      } else {
+        // Last resort: use pickup coordinates but warn
+        driverLat = ride.pickupCoordinates?.latitude || 0;
+        driverLng = ride.pickupCoordinates?.longitude || 0;
+        console.log(`⚠️ WARNING: No driver location found, using pickup as fallback`);
+      }
+    }
+
+    // VALIDATE LOCATION
+    if (driverLat === 0 || driverLng === 0) {
+      console.log("❌ Invalid driver location coordinates");
       if (typeof callback === "function") {
-        callback({ success: false, message: "Driver not found" });
+        callback({ success: false, message: "Driver location not available" });
       }
       return;
     }
@@ -911,32 +963,27 @@ socket.on("acceptRide", async (data, callback) => {
     ride.status = "accepted";
     ride.driverId = driverId;
     ride.driverName = driverName;
+    ride.driverLat = driverLat;  // Store driver location at acceptance
+    ride.driverLng = driverLng;
     
-    // GET DRIVER LOCATION - PREFER CURRENT LOCATION OVER PICKUP
-    let driverLat = driver.location?.coordinates?.[1] || 0;
-    let driverLng = driver.location?.coordinates?.[0] || 0;
-    
-    // If driver location is invalid, use pickup coordinates as fallback
-    if (driverLat === 0 || driverLng === 0) {
-      console.log("⚠️ Driver has no valid location, using pickup as fallback");
-      driverLat = ride.pickupCoordinates?.latitude || 0;
-      driverLng = ride.pickupCoordinates?.longitude || 0;
-    }
-
     // SAVE TO DATABASE
     await ride.save();
-    console.log(`💾 Ride saved successfully`);
+    console.log(`💾 Ride saved successfully with driver location`);
 
+    // GET DRIVER DETAILS
+    const driver = await Driver.findOne({ driverId });
+    
     // PREPARE RESPONSE DATA WITH ACTUAL DRIVER LOCATION
     const driverData = {
       success: true,
       rideId: ride.RAID_ID,
       driverId: driverId,
       driverName: driverName,
-      driverMobile: driver.phone || "N/A",
+      driverMobile: driver?.phone || "N/A",
+      // 🔴 CRITICAL: Send the ACTUAL driver location, not pickup
       driverLat: driverLat,
       driverLng: driverLng,
-      vehicleType: driver.vehicleType || "taxi",
+      vehicleType: driver?.vehicleType || "taxi",
       otp: ride.otp,
       pickup: {
         addr: ride.pickupLocation,
@@ -953,8 +1000,20 @@ socket.on("acceptRide", async (data, callback) => {
       userMobile: ride.userMobile || "N/A",
       timestamp: new Date().toISOString(),
       fare: ride.fare || 0,
-      distance: ride.distance || "0 km"
+      distance: ride.distance || "0 km",
+      // Add flag to indicate location source
+      locationSource: activeDriverSockets.has(driverId) ? 'real-time' : 'database'
     };
+
+    console.log(`📍 FINAL DRIVER LOCATION BEING SENT TO USER:`, {
+      driverLat: driverData.driverLat,
+      driverLng: driverData.driverLng,
+      pickupLat: driverData.pickup.lat,
+      pickupLng: driverData.pickup.lng,
+      areSame: driverData.driverLat === driverData.pickup.lat && 
+               driverData.driverLng === driverData.pickup.lng,
+      locationSource: driverData.locationSource
+    });
 
     // SEND CONFIRMATION TO DRIVER
     if (typeof callback === "function") {
@@ -965,10 +1024,21 @@ socket.on("acceptRide", async (data, callback) => {
     const userRoom = ride.user.toString();
     console.log(`📡 Notifying user room: ${userRoom}`);
     
+    // Send via multiple events to ensure delivery
     io.to(userRoom).emit("rideAccepted", driverData);
     io.to(userRoom).emit("rideAcceptedBroadcast", {
       ...driverData,
       targetUserId: userRoom
+    });
+    
+    // Also send specific driver location update
+    io.to(userRoom).emit("driverLocationUpdate", {
+      driverId: driverId,
+      lat: driverLat,
+      lng: driverLng,
+      status: "onTheWay",
+      vehicleType: driverData.vehicleType,
+      timestamp: Date.now()
     });
 
     // NOTIFY OTHER DRIVERS
@@ -981,6 +1051,8 @@ socket.on("acceptRide", async (data, callback) => {
     });
 
     console.log(`🎉 RIDE ${rideId} ACCEPTED SUCCESSFULLY BY ${driverName}`);
+    console.log(`📍 DRIVER LOCATION SENT: ${driverLat}, ${driverLng}`);
+    
   } catch (error) {
     console.error(`❌ ERROR ACCEPTING RIDE ${rideId}:`, error);
     if (typeof callback === "function") {
@@ -991,6 +1063,7 @@ socket.on("acceptRide", async (data, callback) => {
     }
   }
 });
+
 
 
 
