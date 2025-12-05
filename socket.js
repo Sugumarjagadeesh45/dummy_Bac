@@ -723,7 +723,9 @@ socket.on("registerDriver", async ({ driverId, driverName, latitude, longitude, 
   }
 });
 
-// Update the sendRideRequestToAllDrivers function
+
+// In socket.js - Update the sendRideRequestToAllDrivers function
+
 const sendRideRequestToAllDrivers = async (rideData, savedRide, vehicleTypeFilter) => {
   try {
     console.log(`📢 Sending FCM notifications to drivers with vehicle type: ${vehicleTypeFilter}`);
@@ -735,7 +737,7 @@ const sendRideRequestToAllDrivers = async (rideData, savedRide, vehicleTypeFilte
       fcmToken: { $exists: true, $ne: null, $ne: '' }
     }).select('fcmToken driverId name vehicleType status').limit(10); // Limit to 10 drivers
     
-    console.log(`📊 Total online ${vehicleTypeFilter} drivers: ${matchingDrivers.length}`);
+    console.log(`📊 Online ${vehicleTypeFilter} drivers (limited to 10): ${matchingDrivers.length}`);
     console.log(`📱 ${vehicleTypeFilter} drivers with FCM tokens: ${matchingDrivers.filter(d => d.fcmToken).length}`);
 
     if (matchingDrivers.length === 0) {
@@ -753,7 +755,7 @@ const sendRideRequestToAllDrivers = async (rideData, savedRide, vehicleTypeFilte
     // Send socket notification only to matching vehicle type drivers
     console.log(`🔔 Sending socket notification to ${vehicleTypeFilter} drivers...`);
     
-    // Emit to specific vehicle type channel
+    // Emit to specific vehicle type room
     io.to(`vehicle_${vehicleTypeFilter}`).emit("newRideRequest", {
       ...rideData,
       rideId: rideData.rideId,
@@ -788,7 +790,7 @@ const sendRideRequestToAllDrivers = async (rideData, savedRide, vehicleTypeFilte
       const fcmResult = await sendNotificationToMultipleDrivers(
         driversWithFCM.map(d => d.fcmToken),
         `🚖 New ${vehicleTypeFilter.toUpperCase()} Ride Request!`,
-        `${vehicleTypeFilter.toUpperCase()}: ${rideData.pickup?.address?.substring(0, 40) || 'Location'}... | Fare: ₹${rideData.fare}`,
+        `${vehicleTypeFilter.toUpperCase()}: ${rideData.pickup?.address?.substring(0, 40)}... | Fare: ₹${rideData.fare}`,
         notificationData
       );
 
@@ -827,6 +829,8 @@ const sendRideRequestToAllDrivers = async (rideData, savedRide, vehicleTypeFilte
     };
   }
 };
+
+
 
 
 // Update driver registration to join vehicle-specific room
