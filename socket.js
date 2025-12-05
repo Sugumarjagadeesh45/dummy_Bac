@@ -17,119 +17,6 @@ const userLocationTracking = new Map();
 
 
 
-// In socket.js - Update the sendRideRequestToAllDrivers function
-const sendRideRequestToAllDrivers = async (rideData, savedRide, vehicleTypeFilter) => {
-  try {
-    console.log(`📢 Sending FCM notifications to drivers with vehicle type: ${vehicleTypeFilter}`);
-    
-    // Get ONLY active drivers with matching vehicle type and FCM tokens
-    const matchingDrivers = await Driver.find({ 
-      status: "Live",
-      vehicleType: vehicleTypeFilter, // Filter by vehicle type
-      fcmToken: { $exists: true, $ne: null, $ne: '' }
-    }).select('fcmToken driverId name vehicleType status');
-    
-    console.log(`📊 Total online ${vehicleTypeFilter} drivers: ${matchingDrivers.length}`);
-    console.log(`📱 ${vehicleTypeFilter} drivers with FCM tokens: ${matchingDrivers.filter(d => d.fcmToken).length}`);
-
-    if (matchingDrivers.length === 0) {
-      console.log(`⚠️ No ${vehicleTypeFilter} drivers with FCM tokens found`);
-      return {
-        success: false,
-        message: `No ${vehicleTypeFilter} drivers with FCM tokens available`,
-        sentCount: 0,
-        totalDrivers: 0,
-        fcmSent: false,
-        vehicleType: vehicleTypeFilter
-      };
-    }
-
-    // Send socket notification only to matching vehicle type drivers
-    console.log(`🔔 Sending socket notification to ${vehicleTypeFilter} drivers...`);
-    
-    // Emit to specific vehicle type channel
-    io.to(`vehicle_${vehicleTypeFilter}`).emit("newRideRequest", {
-      ...rideData,
-      rideId: rideData.rideId,
-      vehicleType: vehicleTypeFilter,
-      _id: savedRide?._id?.toString() || null,
-      timestamp: new Date().toISOString()
-    });
-
-    // Also emit to all drivers for backup (but they should filter by vehicle type in app)
-    io.emit("newRideRequestFiltered", {
-      ...rideData,
-      rideId: rideData.rideId,
-      vehicleType: vehicleTypeFilter,
-      _id: savedRide?._id?.toString() || null,
-      timestamp: new Date().toISOString()
-    });
-
-    // FCM notification to matching drivers with tokens
-    const driversWithFCM = matchingDrivers.filter(driver => driver.fcmToken);
-    
-    if (driversWithFCM.length > 0) {
-      console.log(`🎯 Sending FCM to ${driversWithFCM.length} ${vehicleTypeFilter} drivers`);
-      
-      const notificationData = {
-        type: "ride_request",
-        rideId: rideData.rideId,
-        pickup: JSON.stringify(rideData.pickup || {}),
-        drop: JSON.stringify(rideData.drop || {}),
-        fare: rideData.fare?.toString() || "0",
-        distance: rideData.distance?.toString() || "0",
-        vehicleType: vehicleTypeFilter, // Include vehicle type
-        userName: rideData.userName || "Customer",
-        userMobile: rideData.userMobile || "N/A",
-        otp: rideData.otp || "0000",
-        timestamp: new Date().toISOString(),
-        priority: "high",
-        click_action: "FLUTTER_NOTIFICATION_CLICK",
-        sound: "default"
-      };
-
-      const fcmResult = await sendNotificationToMultipleDrivers(
-        driversWithFCM.map(d => d.fcmToken),
-        `🚖 New ${vehicleTypeFilter.toUpperCase()} Ride Request!`,
-        `${vehicleTypeFilter.toUpperCase()}: ${rideData.pickup?.address?.substring(0, 40) || 'Location'}... | Fare: ₹${rideData.fare}`,
-        notificationData
-      );
-
-      console.log('📊 FCM Notification Result:', fcmResult);
-
-      return {
-        success: fcmResult.successCount > 0,
-        driversNotified: fcmResult.successCount,
-        totalDrivers: driversWithFCM.length,
-        fcmSent: fcmResult.successCount > 0,
-        vehicleType: vehicleTypeFilter,
-        fcmMessage: fcmResult.successCount > 0 ? 
-          `FCM sent to ${fcmResult.successCount} ${vehicleTypeFilter} drivers` : 
-          `FCM failed: ${fcmResult.errors?.join(', ') || 'Unknown error'}`
-      };
-    } else {
-      console.log(`⚠️ No ${vehicleTypeFilter} drivers with FCM tokens`);
-      return {
-        success: false,
-        driversNotified: 0,
-        totalDrivers: 0,
-        fcmSent: false,
-        vehicleType: vehicleTypeFilter,
-        fcmMessage: `No ${vehicleTypeFilter} drivers with FCM tokens available`
-      };
-    }
-
-  } catch (error) {
-    console.error('❌ Error in notification system:', error);
-    return {
-      success: false,
-      error: error.message,
-      fcmSent: false,
-      vehicleType: vehicleTypeFilter,
-      fcmMessage: `FCM error: ${error.message}`
-    };
-  }
-};
 
 
 const broadcastPricesToAllUsers = () => {
@@ -567,105 +454,10 @@ socket.on("driverLiveLocationUpdate", async ({ driverId, driverName, lat, lng, h
     });
    
  
-    // In socket.js - Update the registerDriver handler
-socket.on("registerDriver", async ({ driverId, driverName, latitude, longitude, vehicleType = "taxi" }) => {
-  try {
-    console.log(`\n📝 DRIVER REGISTRATION: ${driverName} (${driverId}) - Vehicle: ${vehicleType}`);
-    
-    if (!driverId) {
-      console.log("❌ Registration failed: No driverId provided");
-      return;
-    }
-    
-    if (!latitude || !longitude) {
-      console.log("❌ Registration failed: Invalid location");
-      return;
-    }
-    
-    // First, update the driver's vehicle type in database if needed
-    const driver = await Driver.findOne({ driverId });
-    if (driver && driver.vehicleType !== vehicleType) {
-      driver.vehicleType = vehicleType;
-      await driver.save();
-      console.log(`🔄 Updated driver ${driverId} vehicle type to ${vehicleType}`);
-    }
-    
-    socket.driverId = driverId;
-    socket.driverName = driverName;
-    socket.vehicleType = vehicleType; // Store vehicle type in socket
-    
-    // Store driver connection info with vehicle type
-    activeDriverSockets.set(driverId, {
-      socketId: socket.id,
-      driverId,
-      driverName,
-      location: { latitude, longitude },
-      vehicleType, // Include vehicle type
-      lastUpdate: Date.now(),
-      status: "Live",
-      isOnline: true
-    });
-    
-    // Join driver to rooms
-    socket.join("allDrivers");
-    socket.join(`driver_${driverId}`);
-    socket.join(`vehicle_${vehicleType}`); // Join vehicle-specific room
-    
-    console.log(`✅ DRIVER REGISTERED SUCCESSFULLY: ${driverName} (${driverId}) - Vehicle: ${vehicleType}`);
-    
-    // Save initial location to database
-    await saveDriverLocationToDB(driverId, driverName, latitude, longitude, vehicleType);
-    
-    // Broadcast updated driver list to ALL connected users
-    broadcastDriverLocationsToAllUsers();
-    
-    // Send confirmation to driver
-    socket.emit("driverRegistrationConfirmed", {
-      success: true,
-      message: "Driver registered successfully",
-      vehicleType: vehicleType
-    });
-    
-  } catch (error) {
-    console.error("❌ Error registering driver:", error);
-    
-    socket.emit("driverRegistrationConfirmed", {
-      success: false,
-      message: "Registration failed: " + error.message
-    });
-  }
-});
 
 
 
-    // REQUEST NEARBY DRIVERS
-    socket.on("requestNearbyDrivers", ({ latitude, longitude, radius = 5000 }) => {
-      try {
-        console.log(`\n🔍 USER REQUESTED NEARBY DRIVERS: ${socket.id}`);
-        
-        // Get all active drivers (only those who are online)
-        const drivers = Array.from(activeDriverSockets.values())
-          .filter(driver => driver.isOnline)
-          .map(driver => ({
-            driverId: driver.driverId,
-            name: driver.driverName,
-            location: {
-              coordinates: [driver.location.longitude, driver.location.latitude]
-            },
-            vehicleType: driver.vehicleType,
-            status: driver.status,
-            lastUpdate: driver.lastUpdate
-          }));
 
-        console.log(`📊 Online drivers: ${drivers.length}`);
-        
-        // Send to the requesting client only
-        socket.emit("nearbyDriversResponse", { drivers });
-      } catch (error) {
-        console.error("❌ Error fetching nearby drivers:", error);
-        socket.emit("nearbyDriversResponse", { drivers: [] });
-      }
-    });
 
   
     // In socket.js - Replace the bookRide handler with this enhanced version
@@ -826,18 +618,300 @@ socket.on("bookRide", async (data, callback) => {
     console.log('\n📢 ===== SENDING NOTIFICATIONS TO DRIVERS =====');
     console.log(`🎯 Target: ALL online drivers with FCM tokens`);
 
-    // ✅ CRITICAL FIX: Send FCM notifications to ALL online drivers
-   const notificationResult = await sendRideRequestToAllDrivers({
+
+// In /Users/webasebrandings/Downloads/wsback-main/socket.js
+
+// Update the requestNearbyDrivers handler
+socket.on("requestNearbyDrivers", ({ latitude, longitude, radius = 5000, vehicleType, limit = 10 }) => {
+  try {
+    console.log(`\n🔍 USER REQUESTED NEARBY DRIVERS (${vehicleType}): ${socket.id}`);
+    
+    // Get all active drivers (only those who are online and match vehicle type)
+    const drivers = Array.from(activeDriverSockets.values())
+      .filter(driver => {
+        return driver.isOnline && 
+               (!vehicleType || driver.vehicleType === vehicleType);
+      })
+      .map(driver => ({
+        driverId: driver.driverId,
+        name: driver.driverName,
+        location: {
+          coordinates: [driver.location.longitude, driver.location.latitude]
+        },
+        vehicleType: driver.vehicleType,
+        status: driver.status,
+        lastUpdate: driver.lastUpdate
+      }))
+      .slice(0, limit); // Limit to requested number (default 10)
+
+    console.log(`📊 Online ${vehicleType ? vehicleType + ' ' : ''}drivers (limited to ${limit}): ${drivers.length}`);
+    
+    // Send to the requesting client only
+    socket.emit("nearbyDriversResponse", { drivers });
+  } catch (error) {
+    console.error("❌ Error fetching nearby drivers:", error);
+    socket.emit("nearbyDriversResponse", { drivers: [] });
+  }
+});
+
+// Update driver registration to include vehicle type
+socket.on("registerDriver", async ({ driverId, driverName, latitude, longitude, vehicleType = "taxi" }) => {
+  try {
+    console.log(`\n📝 DRIVER REGISTRATION: ${driverName} (${driverId}) - Vehicle: ${vehicleType}`);
+    
+    if (!driverId) {
+      console.log("❌ Registration failed: No driverId provided");
+      return;
+    }
+    
+    if (!latitude || !longitude) {
+      console.log("❌ Registration failed: Invalid location");
+      return;
+    }
+    
+    // First, update the driver's vehicle type in database if needed
+    const driver = await Driver.findOne({ driverId });
+    if (driver && driver.vehicleType !== vehicleType) {
+      driver.vehicleType = vehicleType;
+      await driver.save();
+      console.log(`🔄 Updated driver ${driverId} vehicle type to ${vehicleType}`);
+    }
+    
+    socket.driverId = driverId;
+    socket.driverName = driverName;
+    socket.vehicleType = vehicleType; // Store vehicle type in socket
+    
+    // Store driver connection info with vehicle type
+    activeDriverSockets.set(driverId, {
+      socketId: socket.id,
+      driverId,
+      driverName,
+      location: { latitude, longitude },
+      vehicleType, // Include vehicle type
+      lastUpdate: Date.now(),
+      status: "Live",
+      isOnline: true
+    });
+    
+    // Join driver to rooms
+    socket.join("allDrivers");
+    socket.join(`driver_${driverId}`);
+    socket.join(`vehicle_${vehicleType}`); // Join vehicle-specific room
+    
+    console.log(`✅ DRIVER REGISTERED SUCCESSFULLY: ${driverName} (${driverId}) - Vehicle: ${vehicleType}`);
+    
+    // Save initial location to database
+    await saveDriverLocationToDB(driverId, driverName, latitude, longitude, vehicleType);
+    
+    // Broadcast updated driver list to ALL connected users
+    broadcastDriverLocationsToAllUsers();
+    
+    // Send confirmation to driver
+    socket.emit("driverRegistrationConfirmed", {
+      success: true,
+      message: "Driver registered successfully",
+      vehicleType: vehicleType
+    });
+    
+  } catch (error) {
+    console.error("❌ Error registering driver:", error);
+    
+    socket.emit("driverRegistrationConfirmed", {
+      success: false,
+      message: "Registration failed: " + error.message
+    });
+  }
+});
+
+// Update the sendRideRequestToAllDrivers function
+const sendRideRequestToAllDrivers = async (rideData, savedRide, vehicleTypeFilter) => {
+  try {
+    console.log(`📢 Sending FCM notifications to drivers with vehicle type: ${vehicleTypeFilter}`);
+    
+    // Get ONLY active drivers with matching vehicle type and FCM tokens
+    const matchingDrivers = await Driver.find({ 
+      status: "Live",
+      vehicleType: vehicleTypeFilter, // Filter by vehicle type
+      fcmToken: { $exists: true, $ne: null, $ne: '' }
+    }).select('fcmToken driverId name vehicleType status').limit(10); // Limit to 10 drivers
+    
+    console.log(`📊 Total online ${vehicleTypeFilter} drivers: ${matchingDrivers.length}`);
+    console.log(`📱 ${vehicleTypeFilter} drivers with FCM tokens: ${matchingDrivers.filter(d => d.fcmToken).length}`);
+
+    if (matchingDrivers.length === 0) {
+      console.log(`⚠️ No ${vehicleTypeFilter} drivers with FCM tokens found`);
+      return {
+        success: false,
+        message: `No ${vehicleTypeFilter} drivers with FCM tokens available`,
+        sentCount: 0,
+        totalDrivers: 0,
+        fcmSent: false,
+        vehicleType: vehicleTypeFilter
+      };
+    }
+
+    // Send socket notification only to matching vehicle type drivers
+    console.log(`🔔 Sending socket notification to ${vehicleTypeFilter} drivers...`);
+    
+    // Emit to specific vehicle type channel
+    io.to(`vehicle_${vehicleTypeFilter}`).emit("newRideRequest", {
+      ...rideData,
+      rideId: rideData.rideId,
+      vehicleType: vehicleTypeFilter,
+      _id: savedRide?._id?.toString() || null,
+      timestamp: new Date().toISOString()
+    });
+
+    // FCM notification to matching drivers with tokens
+    const driversWithFCM = matchingDrivers.filter(driver => driver.fcmToken);
+    
+    if (driversWithFCM.length > 0) {
+      console.log(`🎯 Sending FCM to ${driversWithFCM.length} ${vehicleTypeFilter} drivers`);
+      
+      const notificationData = {
+        type: "ride_request",
+        rideId: rideData.rideId,
+        pickup: JSON.stringify(rideData.pickup || {}),
+        drop: JSON.stringify(rideData.drop || {}),
+        fare: rideData.fare?.toString() || "0",
+        distance: rideData.distance?.toString() || "0",
+        vehicleType: vehicleTypeFilter, // Include vehicle type
+        userName: rideData.userName || "Customer",
+        userMobile: rideData.userMobile || "N/A",
+        otp: rideData.otp || "0000",
+        timestamp: new Date().toISOString(),
+        priority: "high",
+        click_action: "FLUTTER_NOTIFICATION_CLICK",
+        sound: "default"
+      };
+
+      const fcmResult = await sendNotificationToMultipleDrivers(
+        driversWithFCM.map(d => d.fcmToken),
+        `🚖 New ${vehicleTypeFilter.toUpperCase()} Ride Request!`,
+        `${vehicleTypeFilter.toUpperCase()}: ${rideData.pickup?.address?.substring(0, 40) || 'Location'}... | Fare: ₹${rideData.fare}`,
+        notificationData
+      );
+
+      console.log('📊 FCM Notification Result:', fcmResult);
+
+      return {
+        success: fcmResult.successCount > 0,
+        driversNotified: fcmResult.successCount,
+        totalDrivers: driversWithFCM.length,
+        fcmSent: fcmResult.successCount > 0,
+        vehicleType: vehicleTypeFilter,
+        fcmMessage: fcmResult.successCount > 0 ? 
+          `FCM sent to ${fcmResult.successCount} ${vehicleTypeFilter} drivers` : 
+          `FCM failed: ${fcmResult.errors?.join(', ') || 'Unknown error'}`
+      };
+    } else {
+      console.log(`⚠️ No ${vehicleTypeFilter} drivers with FCM tokens`);
+      return {
+        success: false,
+        driversNotified: 0,
+        totalDrivers: 0,
+        fcmSent: false,
+        vehicleType: vehicleTypeFilter,
+        fcmMessage: `No ${vehicleTypeFilter} drivers with FCM tokens available`
+      };
+    }
+
+  } catch (error) {
+    console.error('❌ Error in notification system:', error);
+    return {
+      success: false,
+      error: error.message,
+      fcmSent: false,
+      vehicleType: vehicleTypeFilter,
+      fcmMessage: `FCM error: ${error.message}`
+    };
+  }
+};
+
+
+// Update driver registration to join vehicle-specific room
+socket.on("registerDriver", async ({ driverId, driverName, latitude, longitude, vehicleType = "taxi" }) => {
+  try {
+    console.log(`\n📝 DRIVER REGISTRATION: ${driverName} (${driverId}) - Vehicle: ${vehicleType}`);
+    
+    if (!driverId) {
+      console.log("❌ Registration failed: No driverId provided");
+      return;
+    }
+    
+    if (!latitude || !longitude) {
+      console.log("❌ Registration failed: Invalid location");
+      return;
+    }
+    
+    // First, update the driver's vehicle type in database if needed
+    const driver = await Driver.findOne({ driverId });
+    if (driver && driver.vehicleType !== vehicleType) {
+      driver.vehicleType = vehicleType;
+      await driver.save();
+      console.log(`🔄 Updated driver ${driverId} vehicle type to ${vehicleType}`);
+    }
+    
+    socket.driverId = driverId;
+    socket.driverName = driverName;
+    socket.vehicleType = vehicleType; // Store vehicle type in socket
+    
+    // Store driver connection info with vehicle type
+    activeDriverSockets.set(driverId, {
+      socketId: socket.id,
+      driverId,
+      driverName,
+      location: { latitude, longitude },
+      vehicleType, // Include vehicle type
+      lastUpdate: Date.now(),
+      status: "Live",
+      isOnline: true
+    });
+    
+    // Join driver to rooms
+    socket.join("allDrivers");
+    socket.join(`driver_${driverId}`);
+    socket.join(`vehicle_${vehicleType}`); // Join vehicle-specific room
+    
+    console.log(`✅ DRIVER REGISTERED SUCCESSFULLY: ${driverName} (${driverId}) - Vehicle: ${vehicleType}`);
+    
+    // Save initial location to database
+    await saveDriverLocationToDB(driverId, driverName, latitude, longitude, vehicleType);
+    
+    // Broadcast updated driver list to ALL connected users
+    broadcastDriverLocationsToAllUsers();
+    
+    // Send confirmation to driver
+    socket.emit("driverRegistrationConfirmed", {
+      success: true,
+      message: "Driver registered successfully",
+      vehicleType: vehicleType
+    });
+    
+  } catch (error) {
+    console.error("❌ Error registering driver:", error);
+    
+    socket.emit("driverRegistrationConfirmed", {
+      success: false,
+      message: "Registration failed: " + error.message
+    });
+  }
+});
+
+// Update the bookRide handler to include vehicle type filtering
+// In the bookRide event handler, update the notification call:
+const notificationResult = await sendRideRequestToAllDrivers({
   rideId: rideId,
   pickup: pickup,
   drop: drop,
   fare: backendCalculatedPrice,
   distance: distance,
-  vehicleType: vehicleType,
+  vehicleType: vehicleType, // Pass vehicle type
   userName: userName,
   userMobile: userMobile,
   otp: otp
-}, savedRide, vehicleType); // Add vehicleType as third parameter
+}, savedRide, vehicleType); // Pass vehicle type as third parameter
+
 
     console.log('📱 FCM NOTIFICATION RESULT:');
     console.log('   ✅ Success Count:', notificationResult.successCount || 0);

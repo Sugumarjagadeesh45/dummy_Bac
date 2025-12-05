@@ -14,6 +14,45 @@ router.post("/change-password", (req, res) => {
   driverController.changePassword(req, res);
 });
 
+
+// In /Users/webasebrandings/Downloads/wsback-main/routes/driverRoutes.js
+// Add this route
+router.put('/:driverId/vehicle-type', authMiddleware, async (req, res) => {
+  try {
+    const { driverId } = req.params;
+    const { vehicleType } = req.body;
+    
+    const driver = await Driver.findOneAndUpdate(
+      { driverId },
+      { vehicleType },
+      { new: true }
+    );
+    
+    if (!driver) {
+      return res.status(404).json({
+        success: false,
+        message: 'Driver not found'
+      });
+    }
+    
+    res.json({
+      success: true,
+      message: 'Vehicle type updated successfully',
+      data: {
+        driverId: driver.driverId,
+        vehicleType: driver.vehicleType
+      }
+    });
+  } catch (error) {
+    console.error('Error updating vehicle type:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+
 // Test driver creation (public for testing)
 router.post("/create-test-driver", (req, res) => {
   driverController.createDriver(req, res);

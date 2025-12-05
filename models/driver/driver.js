@@ -47,7 +47,12 @@ const driverSchema = new mongoose.Schema(
       enum: ["Live", "Offline"], 
       default: "Offline" 
     },
-    vehicleType: { type: String, required: true },
+    vehicleType: { 
+      type: String, 
+      required: true,
+      enum: ['bike', 'taxi', 'port', 'mini', 'sedan', 'suv', 'auto'], // Add your vehicle types
+      default: 'taxi'
+    },
     vehicleNumber: { 
       type: String, 
       required: true, 

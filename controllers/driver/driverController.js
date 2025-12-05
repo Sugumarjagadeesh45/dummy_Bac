@@ -15,6 +15,7 @@ const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
 
 
 
+
 const createDriver = async (req, res) => {
   console.log('🚗 Creating driver with data:', req.body);
   console.log('🚗 Files:', req.files);
@@ -52,12 +53,12 @@ const createDriver = async (req, res) => {
     const driverId = await Driver.generateDriverId();
     console.log('✅ Generated driverId:', driverId);
 
-    // Create driver without passwordHash
+    // Create driver
     const driver = new Driver({
       driverId,
       name,
       phone,
-      vehicleType,
+      vehicleType, // This is the important field
       vehicleNumber,
       licenseNumber,
       aadharNumber,
@@ -77,8 +78,9 @@ const createDriver = async (req, res) => {
     });
 
     await driver.save();
-    console.log('✅ Driver saved to MongoDB:', driverId);
+    console.log(`✅ Driver saved to MongoDB: ${driverId} (${vehicleType})`);
 
+    
     // Process uploaded files if any
     if (req.files) {
       const fileTypes = ['licenseFiles', 'aadhaarFiles', 'panFiles', 'rcFiles'];
